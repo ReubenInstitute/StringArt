@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>String Art Generator</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+	<div class="container">
+		<h1>String Art Generator</h1>
+		
+		{% with messages = get_flashed_messages() %}
+			{% if messages %}
+				<div class="alert">
+					{% for message in messages %}
+						{{ message }}
+					{% endfor %}
+				</div>
+			{% endif %}
+		{% endwith %}
+
+		<form method="POST" enctype="multipart/form-data" action="/upload">
+			<div class="controls">
+				<input type="file" name="image" accept="image/*" required>
+				<button type="submit">Upload Image</button>
+			</div>
+		</form>
+
+		{% if uploaded_image %}
+		<div class="preview">
+
+			<div class="preview-column">
+				<h3>Original Image</h3>
+				<div class="image-container">
+					<img class="preview-img" src="data:image/jpeg;base64,{{ uploaded_image }}" alt="Uploaded Image">
+				</div>
+			</div>
+
+
+			<div class="preview-column">
+				<h3>String Art Preview</h3>
+				<div class="image-container">
+					<svg id="art" class="svg-container" 
+						 preserveAspectRatio="xMidYMid meet" 
+						 xmlns="http://www.w3.org/2000/svg"></svg>
+				</div>
+
+				<div class="status-box">
+					<div class="status-item">
+						<span class="status-label">Current Step:</span>
+						<span id="currentStep" class="status-value">0</span>
+					</div>
+					<div class="status-item">
+						<span class="status-label">Wire Length:</span>
+						<span id="wireLength" class="status-value">0.00</span> meters
+					</div>
+				</div>
+			</div>
+		</div>
+		{% endif %}
+
+<div class="slider-container">
+	<label>Frame Type:</label>
+	<div class="radio-group">
+		<label class="radio-option">
+			<input type="radio" name="frameType" value="circle" checked 
+				   onchange="updatePinConstraints()"> Circle
+		</label>
+		<label class="radio-option">
+			<input type="radio" name="frameType" value="square" 
+				   onchange="updatePinConstraints()"> Square
+		</label>
+	</div>
+</div>
+
+<div class="slider-container">
+	<label for="pins">Number of Pins:</label>
+	<input type="number" id="pins" name="pins" min="100" max="500" value="200">
+</div>
+
+<div class="slider-container">
+	<label for="lines">Number of Lines:</label>
+	<input type="number" id="lines" name="lines" min="500" max="10000" value="1000">
+</div>
+
+
+<div class="controls">
+	<button type="button" onclick="startGeneration()">Generate</button>
+	<button type="button" id="pauseButton" onclick="togglePause()">Pause</button>
+</div>
+
+
+	<script src="script.js"></script>
+</body>
+</html>

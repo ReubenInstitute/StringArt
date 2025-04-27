@@ -3,7 +3,11 @@ import cv2
 import numpy as np
 import base64
 import os
-from StringArt import OvalStringArt, RectangularStringArt
+from OvalStringArt import OvalStringArt
+from RectangularStringArt import RectangularStringArt
+from OctagonStringArt import OctagonStringArt
+from SVGStringArt import SVGStringArt
+
 
 app = Flask(__name__, template_folder='.', static_folder='.', static_url_path='')
 app.secret_key = 'supersecretkey'
@@ -67,6 +71,7 @@ def handle_upload():
 	
 	return redirect(url_for('index'))
 
+
 @app.route('/generate', methods=['POST'])
 def generate():
 	global string_art
@@ -80,17 +85,23 @@ def generate():
 			raise ValueError("Could not read image")
 		original_height, original_width = img.shape[:2]
 		
-		# Resize to max 500px while keeping aspect ratio
-		target_size = 500
+
+		# Get size from form data
+		target_size = int(request.form.get('size', 400))
+		if target_size < 100 or target_size > 2000:
+			target_size = 400  # default if invalid
+			
+		# Resize to user-specified size while keeping aspect ratio
 		scale = target_size / max(original_height, original_width)
 		new_width = int(original_width * scale)
 		new_height = int(original_height * scale)
 		img_resized = cv2.resize(img, (new_width, new_height))
-		
+
 		current_frame = request.form.get('frame_type', 'circle')
 		current_pins = int(request.form.get('pins', 200))
 		current_lines = int(request.form.get('lines', 1000))
 
+		# Frame type handling
 		if current_frame == 'circle':
 			string_art = OvalStringArt(
 				n=current_pins,
@@ -98,7 +109,7 @@ def generate():
 				width=new_width,
 				height=new_height
 			)
-		else:
+		elif current_frame == 'square':
 			if current_pins % 4 != 0:
 				return {'error': 'For square frame, number of pins must be divisible by 4!'}, 400
 			string_art = RectangularStringArt(
@@ -107,12 +118,66 @@ def generate():
 				width=new_width,
 				height=new_height
 			)
+		elif current_frame == 'octagon':
+			if current_pins % 8 != 0:
+				return {'error': 'For octagon frame, number of pins must be divisible by 8!'}, 400
+			string_art = OctagonStringArt(
+				n=current_pins,
+				l=current_lines,
+				width=new_width,
+				height=new_height
+			)
+		elif current_frame == 'svg':
+			# SVG path handling - no pin constraints
+			string_art = SVGStringArt(
+				n=current_pins,
+				l=current_lines,
+				width=new_width,
+				height=new_height
+			)
+		else:
+			return {'error': 'Invalid frame type selected'}, 400
 		
+		# Common initialization for all frame types
 		_, buffer = cv2.imencode('.png', img_resized)
 		string_art.start_generation(buffer.tobytes())
-		return {'width': new_width, 'height': new_height}, 200
+
+		# Get processed image and invert back to original within mask
+		processed_img = string_art._img_processed.copy()
+		processed_img = 255 - processed_img  # Invert to show original within mask
+
+		# Convert to 3 channels if grayscale
+		if len(processed_img.shape) == 2:
+			processed_img = cv2.cvtColor(processed_img, cv2.COLOR_GRAY2BGR)
+
+
+		# In the generate route, after getting the processed_img:
+		processed_img = string_art._img_processed.copy()
+		processed_img = 255 - processed_img  # Invert to show original within mask
+
+		# Convert to 3 channels if grayscale
+		if len(processed_img.shape) == 2:
+ 			processed_img = cv2.cvtColor(processed_img, cv2.COLOR_GRAY2BGR)
+
+		# Add pin markers ONLY to preview image
+		for (x, y) in string_art.coords:
+			cv2.circle(processed_img, (x, y), radius=3, color=(0, 0, 255), thickness=-1)
+
+		# Resize for preview
+		scale = 300 / max(new_height, new_width)
+		preview_processed = cv2.resize(processed_img, (int(new_width * scale), int(new_height * scale)))
+
+		# Encode to base64
+		_, buffer = cv2.imencode('.jpg', preview_processed)
+		processed_b64 = base64.b64encode(buffer).decode('utf-8')
+
+		return {'width': new_width, 'height': new_height, 'processed_image': processed_b64}, 200
 	except Exception as e:
+		app.logger.error(f"Generation failed: {str(e)}", exc_info=True)
 		return {'error': str(e)}, 400
+
+
+
 
 @app.route('/next_step')
 def next_step():

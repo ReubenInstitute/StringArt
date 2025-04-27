@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <path d="M50 5 
+           L61.6 25 
+           H85 
+           L73.4 45 
+           L85 65 
+           H61.6 
+           L50 85 
+           L38.4 65 
+           H15 
+           L26.6 45 
+           L15 25 
+           H38.4 
+           Z" 
+    />
+</svg>

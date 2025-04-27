@@ -1,7 +1,3 @@
-#!/usr/bin/env python
-
-import sys
-import os
 import cv2
 import numpy as np
 
@@ -40,11 +36,54 @@ class StringArt:
 	def _get_pin_coords(self):
 		raise NotImplementedError
 
+
+
+
+
+
 	def _line_pixels(self, pin0, pin1):
-		length = int(np.hypot(pin1[0] - pin0[0], pin1[1] - pin0[1]))
-		x = np.linspace(pin0[0], pin1[0], length).astype(int)
-		y = np.linspace(pin0[1], pin1[1], length).astype(int)
-		return (x-1, y-1)
+		"""Bresenham's line algorithm implementation"""
+		x0, y0 = int(round(pin0[0])), int(round(pin0[1]))
+		x1, y1 = int(round(pin1[0])), int(round(pin1[1]))
+		
+		points = []
+		dx = abs(x1 - x0)
+		dy = abs(y1 - y0)
+		x, y = x0, y0
+		sx = -1 if x0 > x1 else 1
+		sy = -1 if y0 > y1 else 1
+		
+		if dx > dy:
+			err = dx / 2.0
+			while x != x1:
+				points.append((x, y))
+				err -= dy
+				if err < 0:
+					y += sy
+					err += dx
+				x += sx
+		else:
+			err = dy / 2.0
+			while y != y1:
+				points.append((x, y))
+				err -= dx
+				if err < 0:
+					x += sx
+					err += dy
+				y += sy
+		
+		points.append((x, y))  # Add final point
+		
+		# Convert to numpy arrays and clip to bounds
+		if not points:
+			return np.array([], dtype=int), np.array([], dtype=int)
+		
+		x_coords = np.array([p[0] for p in points])
+		y_coords = np.array([p[1] for p in points])
+		x_coords = np.clip(x_coords, 0, self.width - 1)
+		y_coords = np.clip(y_coords, 0, self.height - 1)
+		
+		return x_coords, y_coords
 
 	def start_generation(self, image_data):
 		"""Initialize with raw image bytes"""
@@ -69,6 +108,9 @@ class StringArt:
 		self._current_line = 0
 		self._done = False
 
+
+
+
 	def next_step(self):
 		if self._done or self._current_line >= self.numLines:
 			return None, False
@@ -80,12 +122,23 @@ class StringArt:
 		for index in range(1, self.numPins):
 			pin = (self._old_pin + index) % self.numPins
 			coord = self.coords[pin]
+
+			
+			# Skip lines that go outside the shape (for SVG only)
+			if hasattr(self, '_is_line_inside_shape') and not self._is_line_inside_shape(old_coord, coord):
+				continue
+
+
 			x_line, y_line = self._line_pixels(old_coord, coord)
 			line_sum = np.sum(self._img_processed[y_line, x_line])
-			
+
 			if line_sum > best_line and pin not in self._previous_pins:
 				best_line = line_sum
 				best_pin = pin
+
+		print(f"step {self._current_line + 1}: generating {self.numPins - 1} images. selected image {best_pin}")
+		print("Available pins:", [pin for pin in range(self.numPins) if pin not in self._previous_pins])
+		print("Best pin:", best_pin, "Score:", best_line)
 
 		if len(self._previous_pins) >= self.minLoop:
 			self._previous_pins.pop(0)
@@ -111,6 +164,17 @@ class StringArt:
 
 		self._current_line += 1
 		return line_coords, not self._done
+
+
+
+
+
+
+
+
+
+
+
 
 	def save_png(self, filename="output.png"):
 		cv2.imwrite(filename, self.imgResult)
@@ -147,147 +211,5 @@ class StringArt:
 			x0, y0 = self.coords[self.thread_sequence[i-1]]
 			x1, y1 = self.coords[self.thread_sequence[i]]
 			total += np.hypot(x1 - x0, y1 - y0)
-			
+
 		return round(total, 2)
-
-
-class OvalStringArt(StringArt):
-	def _resize_image(self, img_gray):
-		return cv2.resize(img_gray, (self.width, self.height))
-
-	def _process_image(self, img_sized):
-		img_inverted = self._invert_image(img_sized)
-		center_x, center_y = self.width // 2, self.height // 2
-		a, b = center_x, center_y
-		
-		y, x = np.ogrid[:self.height, :self.width]
-		mask = ((x - center_x)/a)**2 + ((y - center_y)/b)**2 > 1
-		img_inverted[mask] = 0
-		return img_inverted
-
-	def _get_pin_coords(self):
-		alpha = np.linspace(0, 2 * np.pi, self.numPins + 1)[:-1]
-		center_x, center_y = self.width // 2, self.height // 2
-		a, b = center_x, center_y
-		return [
-			(int(center_x + a * np.cos(angle)), 
-			int(center_y + b * np.sin(angle))) 
-			for angle in alpha
-		]
-
-
-class RectangularStringArt(StringArt):
-	def __init__(self, n=200, l=1000, width=500, height=500):
-		super().__init__(n, l, width, height)
-
-	def _get_pin_coords(self):
-		width = self.width
-		height = self.height
-		num_pins = self.numPins
-		perimeter = 2 * (width + height)
-		step = perimeter / num_pins  # Distance between pins
-		
-		coords = []
-		for i in range(num_pins):
-			pos = i * step  # Current position along perimeter
-			
-			# Top side (left to right)
-			if pos < width:
-				x = pos
-				y = 0
-			# Right side (top to bottom)
-			elif pos < width + height:
-				x = width
-				y = pos - width
-			# Bottom side (right to left)
-			elif pos < 2 * width + height:
-				x = width - (pos - (width + height))
-				y = height
-			# Left side (bottom to top)
-			else:
-				x = 0
-				y = height - (pos - (2 * width + height))
-			
-			coords.append((int(x), int(y)))
-		
-		return coords
-
-	def _resize_image(self, img_gray):
-		return cv2.resize(img_gray, (self.width, self.height))
-
-	def _process_image(self, img_sized):
-		return self._invert_image(img_sized)
-
-
-class OctagonStringArt(StringArt):
-	def _resize_image(self, img_gray):
-		return cv2.resize(img_gray, (self.width, self.height))
-
-	def _process_image(self, img_sized):
-		img_inverted = self._invert_image(img_sized)
-		
-		# Create octagonal mask
-		vertices = self._get_octagon_vertices()
-		mask = np.zeros_like(img_inverted)
-		cv2.fillPoly(mask, [np.array(vertices)], 255)
-		
-		# Apply mask and return
-		return cv2.bitwise_and(img_inverted, mask)
-
-	def _get_octagon_vertices(self):
-		w, h = self.width, self.height
-		cut_x = int(w * 0.2)  # 20% cutoff from width
-		cut_y = int(h * 0.2)  # 20% cutoff from height
-		return [
-			(cut_x, 0),		  # Top-left
-			(w - cut_x, 0),	  # Top-right
-			(w, cut_y),		  # Right-top
-			(w, h - cut_y),	  # Right-bottom
-			(w - cut_x, h),	  # Bottom-right
-			(cut_x, h),		  # Bottom-left
-			(0, h - cut_y),	  # Left-bottom
-			(0, cut_y)		   # Left-top
-		]
-
-	def _get_pin_coords(self):
-		vertices = self._get_octagon_vertices()
-		coords = []
-		total_pins = self.numPins
-		
-		# Calculate pins per side with remainder distribution
-		base_pins, remainder = divmod(total_pins, 8)
-		
-		for side in range(8):
-			# Get current and next vertex
-			start = vertices[side]
-			end = vertices[(side + 1) % 8]
-			
-			# Calculate pins for this side
-			pins_this_side = base_pins + (1 if side < remainder else 0)
-			
-			# Generate coordinates along the edge
-			x = np.linspace(start[0], end[0], pins_this_side + 1)[:-1]
-			y = np.linspace(start[1], end[1], pins_this_side + 1)[:-1]
-			coords.extend(zip(x.astype(int), y.astype(int)))
-
-		return coords[:total_pins]  # Ensure exact count
-
-if __name__ == "__main__":
-	# Standalone demo (works with input.jpg)
-	if os.path.exists("input.jpg"):
-		with open("input.jpg", "rb") as f:
-			image_data = f.read()
-		
-		rectangle = RectangularStringArt(n=200, l=4000, width=500, height=500)
-		rectangle.start_generation(image_data)
-		
-		while rectangle.next_step()[1]:
-			sys.stdout.write(f"\r[+] Computing line {rectangle._current_line} of {rectangle.numLines}")
-			sys.stdout.flush()
-		
-		rectangle.save_png()
-		rectangle.save_svg()
-		rectangle.save_csv()
-		print(f"\nTotal wire length: {rectangle.get_total_wire_length()} mm")
-	else:
-		print("Error: input.jpg not found for standalone execution")

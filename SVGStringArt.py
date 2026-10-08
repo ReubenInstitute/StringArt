@@ -5,7 +5,7 @@ import numpy as np
 from svgpathtools import svg2paths2
 
 class SVGStringArt(StringArt):
-	def __init__(self, n=200, l=1000, width=500, height=500):
+	def __init__(self, n=200, l=1000, width=500, height=500, svg_file="svg/shape.svg"):
 		super().__init__(n, l, width, height)
 		self.svg_path = None
 		self._total_length = 0
@@ -14,7 +14,6 @@ class SVGStringArt(StringArt):
 		self.mask = None
 
 		# Load and parse SVG file
-		svg_file = "shape.svg"
 		if not os.path.exists(svg_file):
 			raise FileNotFoundError(f"Required SVG file not found: {svg_file}")
 			

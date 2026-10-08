@@ -1,14 +1,15 @@
 let isGenerating = false;
-let isPaused = false;
 
 function updatePinConstraints() {
 	const frameType = document.querySelector('input[name="frameType"]:checked').value;
 	const pinsInput = document.getElementById('pins');
-	
+
 	pinsInput.setCustomValidity("");
-	
-	// Handle min/max attributes
-	if (frameType === 'svg') {
+
+	// Handle min/max attributes - circle/square/octagon are pin-constrained,
+	// any other value is an SVG shape file with no pin-count constraint
+	const pinConstrainedShapes = ['circle', 'square', 'octagon'];
+	if (!pinConstrainedShapes.includes(frameType)) {
 		pinsInput.removeAttribute('min');
 		pinsInput.removeAttribute('max');
 	} else {
@@ -36,28 +37,86 @@ function updatePinConstraints() {
 	} else {
 		pinsInput.onchange = null;
 	}
-	
+
 	pinsInput.reportValidity();
 }
 
-function togglePause() {
-	isPaused = !isPaused;
-	document.getElementById('pauseButton').textContent = isPaused ? 'Continue' : 'Pause';
+function getSelectedFile() {
+	const selectedFileInput = document.querySelector('input[name="selectedFile"]:checked');
+	return selectedFileInput ? selectedFileInput.value : null;
 }
 
+// While idle, refresh just the masked-image preview to reflect the
+// currently selected file/shape - does not touch /next_step or the art canvas.
+async function refreshMaskedPreview() {
+	if (isGenerating) return;
 
+	const selectedFile = getSelectedFile();
+	if (!selectedFile) return;
 
+	const frameType = document.querySelector('input[name="frameType"]:checked').value;
+	const pins = parseInt(document.getElementById('pins').value) || 200;
+	const lines = parseInt(document.getElementById('lines').value) || 1000;
+	const size = parseInt(document.getElementById('size').value) || 400;
+
+	const formData = new FormData();
+	formData.append('frame_type', frameType);
+	formData.append('selected_file', selectedFile);
+	formData.append('pins', pins);
+	formData.append('lines', lines);
+	formData.append('size', size);
+
+	try {
+		const response = await fetch('/generate', {
+			method: 'POST',
+			body: formData
+		});
+		if (!response.ok) return;
+
+		const generateData = await response.json();
+		if (generateData.processed_image) {
+			document.getElementById('maskedPreview').src =
+				`data:image/jpeg;base64,${generateData.processed_image}`;
+		}
+	} catch (error) {
+		// Preview is best-effort; ignore failures here.
+	}
+}
+
+// Enables/disables everything except the Generate/Stop button itself.
+function setControlsDisabled(disabled) {
+	document.querySelectorAll('#generateForm input').forEach(el => el.disabled = disabled);
+	document.querySelectorAll('#uploadForm input, #uploadForm button').forEach(el => el.disabled = disabled);
+}
+
+async function toggleGeneration() {
+	if (isGenerating) {
+		stopGeneration();
+	} else {
+		await startGeneration();
+	}
+}
+
+function stopGeneration() {
+	isGenerating = false;
+	setControlsDisabled(false);
+	document.getElementById('generateButton').textContent = 'Generate';
+}
 
 async function startGeneration() {
-	if (isGenerating) return;
+	const selectedFile = getSelectedFile();
+	if (!selectedFile) {
+		alert('Please upload and select an image first!');
+		return;
+	}
+
+	const frameType = document.querySelector('input[name="frameType"]:checked').value;
+	const pinsInput = document.getElementById('pins');
+	const linesInput = document.getElementById('lines');
 
 	let size = parseInt(document.getElementById('size').value) || 400;
 	size = Math.min(Math.max(size, 100), 2000);
 	document.getElementById('size').value = size;
-	
-	const frameType = document.querySelector('input[name="frameType"]:checked').value;
-	const pinsInput = document.getElementById('pins');
-	const linesInput = document.getElementById('lines');
 
 	// Validate and correct pin count
 	let correctedPins = parseInt(pinsInput.value) || 200;
@@ -75,15 +134,18 @@ async function startGeneration() {
 	correctedLines = Math.min(Math.max(correctedLines, 500), 10000);
 	linesInput.value = correctedLines;
 
-	// Reset state
+	// Lock everything else and switch the button to "Stop"
 	isGenerating = true;
-	isPaused = false;
-	document.getElementById('pauseButton').textContent = 'Pause';
+	setControlsDisabled(true);
+	document.getElementById('generateButton').textContent = 'Stop';
 	document.getElementById('art').innerHTML = '';
+	document.getElementById('currentStep').textContent = '0';
+	document.getElementById('wireLength').textContent = '0.00';
 
 	try {
 		const formData = new FormData();
 		formData.append('frame_type', frameType);
+		formData.append('selected_file', selectedFile);
 		formData.append('pins', correctedPins);
 		formData.append('lines', correctedLines);
 		formData.append('size', size);
@@ -96,31 +158,24 @@ async function startGeneration() {
 		if (!response.ok) {
 			const error = await response.json();
 			alert(`Error: ${error.error}`);
-			isGenerating = false;
+			stopGeneration();
 			return;
 		}
 
 		const generateData = await response.json();
 		document.getElementById('art').setAttribute('viewBox', `0 0 ${generateData.width} ${generateData.height}`);
-   // Update masked image preview
-    if (generateData.processed_image) {
-        document.getElementById('maskedPreview').src = 
-            `data:image/jpeg;base64,${generateData.processed_image}`;
-    }
- 
-		while (isGenerating) {
-			if (isPaused) {
-				await new Promise(r => setTimeout(r, 100));
-				continue;
-			}
+		if (generateData.processed_image) {
+			document.getElementById('maskedPreview').src =
+				`data:image/jpeg;base64,${generateData.processed_image}`;
+		}
 
+		while (isGenerating) {
 			const stepResponse = await fetch('/next_step');
 			if (!stepResponse.ok) break;
-			
+
 			const data = await stepResponse.json();
-			
+
 			if (data.done) {
-				isGenerating = false;
 				break;
 			}
 
@@ -140,9 +195,18 @@ async function startGeneration() {
 	} catch (error) {
 		alert(`Generation failed: ${error.message}`);
 	} finally {
-		isGenerating = false;
+		stopGeneration();
 	}
 }
+
+// Changing the selected file or shape while idle updates the masked-image
+// preview immediately, without starting generation.
+document.addEventListener('change', (e) => {
+	if (!e.target) return;
+	if (e.target.name === 'selectedFile' || e.target.name === 'frameType') {
+		refreshMaskedPreview();
+	}
+});
 
 // Initialize constraints when page loads
 updatePinConstraints();

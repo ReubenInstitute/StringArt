@@ -136,10 +136,6 @@ class StringArt:
 				best_line = line_sum
 				best_pin = pin
 
-		print(f"step {self._current_line + 1}: generating {self.numPins - 1} images. selected image {best_pin}")
-		print("Available pins:", [pin for pin in range(self.numPins) if pin not in self._previous_pins])
-		print("Best pin:", best_pin, "Score:", best_line)
-
 		if len(self._previous_pins) >= self.minLoop:
 			self._previous_pins.pop(0)
 		self._previous_pins.append(best_pin)

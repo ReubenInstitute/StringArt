@@ -221,12 +221,14 @@ input[type="number"]:focus {
     margin: 0;
 }
 
-#pauseButton {
-    background: #f39c12;
-}
-
-#pauseButton:hover {
-    background: #e67e22;
+#maskedPreview {
+    display: block;
+    width: 300px;
+    height: 300px;
+    object-fit: contain;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 }
 
 
